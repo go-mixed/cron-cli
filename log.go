@@ -106,14 +106,14 @@ func (l *logger) Error(err error, msg string, args ...any) {
 
 func (l *logger) stdout(kv ...any) io.Writer {
 	return &zapio.Writer{
-		Log:   l.zapLogger.With(handleFields(kv)...),
+		Log:   l.zapLogger.With(handleFields(kv)...).With(zap.Bool("stdout", true)),
 		Level: zapcore.InfoLevel,
 	}
 }
 
 func (l *logger) stderr(kv ...any) io.Writer {
 	return &zapio.Writer{
-		Log:   l.zapLogger.With(handleFields(kv)...),
+		Log:   l.zapLogger.With(handleFields(kv)...).With(zap.Bool("stderr", true)),
 		Level: zapcore.ErrorLevel,
 	}
 }
