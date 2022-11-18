@@ -17,14 +17,17 @@ type Task struct {
 	Cron            *cron.Cron
 	runningCount    int64
 	stoppingTimeout int64
-	logger          *logger
 
 	wg *sync.WaitGroup
+
+	logger *logger
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 func NewTask(log *logger) *Task {
 	return &Task{
-		Cron:            cron.New(cron.WithSeconds(), cron.WithLogger(log)),
+		Cron:            cron.New(cron.WithParser(cron.NewParser(cron.SecondOptional|cron.Minute|cron.Hour|cron.Dom|cron.Month|cron.Dow|cron.Descriptor)), cron.WithLogger(log)),
 		Jobs:            nil,
 		wg:              &sync.WaitGroup{},
 		stoppingTimeout: 3_000,
@@ -33,7 +36,6 @@ func NewTask(log *logger) *Task {
 }
 
 func (t *Task) AddJob(jobs ...*job) error {
-
 	for _, j := range jobs {
 		if j.Schedule == "" {
 			return fmt.Errorf("schedule required")
@@ -43,6 +45,7 @@ func (t *Task) AddJob(jobs ...*job) error {
 			return fmt.Errorf("command of schedule: \"%s\" required", j.Schedule)
 		}
 
+		j.task = t
 		if err := j.makeLogger(t.logger); err != nil {
 			return err
 		}
@@ -50,6 +53,8 @@ func (t *Task) AddJob(jobs ...*job) error {
 		if err := t.createCronJob(j); err != nil {
 			return err
 		}
+
+		t.logger.Info("add job", "name", j.Name, "schedule", j.Schedule)
 	}
 
 	t.Jobs = append(t.Jobs, jobs...)
@@ -61,11 +66,20 @@ func (t *Task) Start() {
 	t.Cron.Start()
 	t.logger.Info("cron start")
 	t.wg.Add(1)
+
+	if t.cancel != nil {
+		t.cancel()
+	}
+
+	t.ctx, t.cancel = context.WithCancel(context.Background())
 }
 
 func (t *Task) Stop() {
 	defer t.wg.Done()
 	t.Cron.Stop()
+	if t.cancel != nil {
+		t.cancel()
+	}
 
 	// waiting for all job finish，force quit if timeout > stoppingTimeout
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(t.stoppingTimeout)*time.Millisecond)
@@ -89,10 +103,12 @@ for1:
 }
 
 func (t *Task) ListenStopSignal() {
-	ch := make(chan os.Signal)
-	signal.Notify(ch, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	<-ch
-	t.Stop()
+	go func() {
+		ch := make(chan os.Signal)
+		signal.Notify(ch, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+		<-ch
+		t.Stop()
+	}()
 }
 
 func (t *Task) createCronJob(job *job) error {
@@ -118,6 +134,7 @@ func (t *Task) createCronJob(job *job) error {
 }
 
 func (t *Task) LoadSettings(configs ...string) error {
+
 	for _, path := range configs {
 
 		var filenames []string
@@ -133,9 +150,15 @@ func (t *Task) LoadSettings(configs ...string) error {
 		}
 
 		for _, filename := range filenames {
-			var jobs []*job
-			if err := loadSetting(&jobs, filename); err != nil {
+			var config Config
+			if err := loadSetting(&config, filename); err != nil {
 				return err
+			}
+			// turn map to slice
+			var jobs []*job
+			for k, j := range config.Schedules {
+				j.Name = k
+				jobs = append(jobs, j)
 			}
 
 			if err := t.AddJob(jobs...); err != nil {

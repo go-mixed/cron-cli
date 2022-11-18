@@ -66,11 +66,12 @@ func buildTask(args []string, logPath string) *Task {
 		}
 	}
 
-	for _, line := range jobLines {
+	for i, line := range jobLines {
 		if len(line) <= 1 {
 			panic("invalid schedule and command: " + strings.Join(line, " "))
 		}
 		if err = task.AddJob(&job{
+			Name:     fmt.Sprintf("argument-%d", i),
 			Schedule: line[0],
 			Commands: []ShellCommand{line[1:]},
 		}); err != nil {

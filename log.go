@@ -11,21 +11,26 @@ import (
 )
 
 type logger struct {
-	zapLogger   *zap.Logger
-	sugarLogger *zap.SugaredLogger
+	zapLogger *zap.Logger
 }
 
 func newLogger(stdoutPath, stderrPath string) (*logger, error) {
 	var l *zap.Logger
 	var err error
 
+	options := []zap.Option{
+		zap.WithCaller(false),
+		zap.AddStacktrace(zap.LevelEnablerFunc(func(level zapcore.Level) bool {
+			return false
+		})),
+	}
+
 	if stdoutPath == "" && stderrPath == "" { // output to console
-		if l, err = zap.NewDevelopment(); err != nil {
+		if l, err = zap.NewProduction(options...); err != nil {
 			return nil, err
 		}
 		return &logger{
-			zapLogger:   l,
-			sugarLogger: l.Sugar(),
+			zapLogger: l,
 		}, nil
 	}
 
@@ -39,8 +44,9 @@ func newLogger(stdoutPath, stderrPath string) (*logger, error) {
 			zapcore.AddSync(cronowriter.MustNew(stdoutPath)),
 			zap.LevelEnablerFunc(func(level zapcore.Level) bool {
 				return true
-			}),
-		))
+			})),
+			options...,
+		)
 	} else { // output to 2 files
 		if err = os.MkdirAll(filepath.Dir(stderrPath), os.ModePerm); err != nil {
 			return nil, err
@@ -63,6 +69,7 @@ func newLogger(stdoutPath, stderrPath string) (*logger, error) {
 					}),
 				),
 			),
+			options...,
 		)
 	}
 
@@ -70,7 +77,7 @@ func newLogger(stdoutPath, stderrPath string) (*logger, error) {
 		return nil, err
 	}
 
-	return &logger{zapLogger: l, sugarLogger: l.Sugar()}, nil
+	return &logger{zapLogger: l}, nil
 }
 
 func handleFields(args []any) []zap.Field {
@@ -96,27 +103,19 @@ func (l *logger) Info(msg string, args ...any) {
 }
 
 func (l *logger) Error(err error, msg string, args ...any) {
-	l.zapLogger.Info(msg, handleFields(append(args, "error", err.Error()))...)
+	l.zapLogger.Error(msg, handleFields(append(args, "error", err.Error()))...)
 }
 
-func (l *logger) Infof(format string, args ...any) {
-	l.sugarLogger.Infof(format, args...)
-}
-
-func (l *logger) Errorf(format string, args ...any) {
-	l.sugarLogger.Errorf(format, args...)
-}
-
-func (l *logger) stdout() io.Writer {
+func (l *logger) stdout(kv ...any) io.Writer {
 	return &zapio.Writer{
-		Log:   l.zapLogger,
+		Log:   l.zapLogger.With(handleFields(kv)...),
 		Level: zapcore.InfoLevel,
 	}
 }
 
-func (l *logger) stderr() io.Writer {
+func (l *logger) stderr(kv ...any) io.Writer {
 	return &zapio.Writer{
-		Log:   l.zapLogger,
+		Log:   l.zapLogger.With(handleFields(kv)...),
 		Level: zapcore.ErrorLevel,
 	}
 }

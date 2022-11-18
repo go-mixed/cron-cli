@@ -8,6 +8,10 @@ import (
 	"strings"
 )
 
+type Config struct {
+	Schedules map[string]*job `json:"schedules" yaml:"schedules"`
+}
+
 func loadSetting(v any, filename string) error {
 	if content, err := os.ReadFile(filename); err != nil {
 		return fmt.Errorf("read settings file error: %w", err)

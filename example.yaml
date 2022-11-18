@@ -1,0 +1,11 @@
+---
+
+schedules:
+  task1:
+    schedule: '* * * * * *'
+    a: 1
+    timeout: 100
+    commands:
+      - ["echo", "123"]
+      - ["nslookup", "www.microsoft.com"]
+
