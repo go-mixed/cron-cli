@@ -19,7 +19,9 @@ func main() {
 		},
 		Run: func(cmd *cobra.Command, args []string) {
 			logPath, _ := cmd.PersistentFlags().GetString("log")
+			docker, _ := cmd.PersistentFlags().GetBool("docker")
 			task := buildTask(args, logPath)
+			task.isDocker = docker
 
 			if cmd.PersistentFlags().Changed("config") {
 				configs, _ := cmd.PersistentFlags().GetStringSlice("config")
@@ -34,8 +36,9 @@ func main() {
 		},
 	}
 
+	rootCmd.PersistentFlags().Bool("docker", false, "run this application in docker")
 	rootCmd.PersistentFlags().StringSliceP("config", "c", []string{}, "the path of config files or directories")
-	rootCmd.PersistentFlags().StringP("log", "l", "", "the path of log directory")
+	rootCmd.PersistentFlags().StringP("log", "l", "", "the path of log file")
 
 	err := rootCmd.Execute()
 	if err != nil {

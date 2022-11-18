@@ -20,9 +20,10 @@ type Task struct {
 
 	wg *sync.WaitGroup
 
-	logger *logger
-	ctx    context.Context
-	cancel context.CancelFunc
+	logger   *logger
+	ctx      context.Context
+	cancel   context.CancelFunc
+	isDocker bool
 }
 
 func NewTask(log *logger) *Task {

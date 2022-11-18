@@ -69,9 +69,14 @@ for1:
 		default:
 		}
 
+		actualCommand := command
+		if job.task.isDocker {
+			actualCommand = append([]string{"nsenter", "-t", "1", "-m", "-u", "-n", "-i"}, command...)
+		}
+
 		job.logger.Info(fmt.Sprintf("schedule: [%s] executing: [%s]\n", job.Schedule, command.String()), "name", job.Name)
 
-		cmd := exec.CommandContext(ctx, command.Command(), command.Arguments()...)
+		cmd := exec.CommandContext(ctx, actualCommand.Command(), actualCommand.Arguments()...)
 		cmd.Dir = job.WorkDirectory
 		cmd.Env = append(os.Environ(), job.Env...)
 		cmd.Stdout = job.logger.stdout("name", job.Name)
