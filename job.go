@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/mattn/go-shellwords"
 	"github.com/robfig/cron/v3"
 	"os"
 	"os/exec"
@@ -28,6 +30,39 @@ type job struct {
 
 	id   cron.EntryID
 	task *Task
+}
+
+func (s *ShellCommand) UnmarshalJSON(buf []byte) error {
+	var multi []string
+	if err := json.Unmarshal(buf, &multi); err != nil {
+		var single string
+		if err = json.Unmarshal(buf, &single); err != nil {
+			return err
+		}
+		if multi, err = shellwords.Parse(single); err != nil {
+			return err
+		}
+	}
+
+	*s = multi
+	return nil
+}
+
+func (s *ShellCommand) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var multi []string
+
+	if err := unmarshal(&multi); err != nil {
+		var single string
+		if err = unmarshal(&single); err != nil {
+			return err
+		}
+		if multi, err = shellwords.Parse(single); err != nil {
+			*s = append(*s, single)
+			return nil
+		}
+	}
+	*s = multi
+	return nil
 }
 
 func (s ShellCommand) Command() string {
@@ -61,9 +96,9 @@ for1:
 		select {
 		case <-ctx.Done():
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				job.logger.Info(fmt.Sprintf("schedule: [%s]. Execution timeout, Skip next command of [%s]\n", job.Schedule, command.String()), "name", job.Name)
+				job.logger.Info(fmt.Sprintf("execution timeout, Skip next command of [%s]\n", command.String()), "schedule", job.Schedule, "name", job.Name)
 			} else if errors.Is(ctx.Err(), context.Canceled) {
-				job.logger.Info(fmt.Sprintf("schedule: [%s]. Task exiting, Skip next command of [%s]\n", job.Schedule, command.String()), "name", job.Name)
+				job.logger.Info(fmt.Sprintf("task exiting, Skip next command of [%s]\n", command.String()), "schedule", job.Schedule, "name", job.Name)
 			}
 			break for1
 		default:
@@ -74,16 +109,16 @@ for1:
 			actualCommand = append([]string{"nsenter", "-t", "1", "-m", "-u", "-n", "-i"}, command...)
 		}
 
-		job.logger.Info(fmt.Sprintf("schedule: [%s] executing: [%s]\n", job.Schedule, command.String()), "name", job.Name)
+		job.logger.Info("executing", "schedule", job.Schedule, "command", command.String(), "name", job.Name)
 
 		cmd := exec.CommandContext(ctx, actualCommand.Command(), actualCommand.Arguments()...)
 		cmd.Dir = job.WorkDirectory
 		cmd.Env = append(os.Environ(), job.Env...)
-		cmd.Stdout = job.logger.stdout("name", job.Name)
-		cmd.Stderr = job.logger.stderr("name", job.Name)
+		cmd.Stdout = job.logger.stdout("name", job.Name, "command", command.String())
+		cmd.Stderr = job.logger.stderr("name", job.Name, "command", command.String())
 
 		if err := cmd.Run(); err != nil {
-			job.logger.Error(err, "command execution fail", "name", job.Name)
+			job.logger.Error(err, "command execution fail", "schedule", job.Schedule, "command", command.String(), "name", job.Name)
 		}
 	}
 }

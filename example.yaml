@@ -6,6 +6,8 @@ schedules:
     a: 1
     timeout: 100
     commands:
-      - ["echo", "123"]
-      - ["nslookup", "www.microsoft.com"]
+      - echo "command as string"
+      - ["echo", "command", "as", "array"]
+      # if you want to use | or &&, must like this
+      - ["sh", "-c", "nslookup www.google.com && nslookup www.microsoft.com"]
 
