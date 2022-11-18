@@ -10,7 +10,7 @@ func main() {
 
 	rootCmd := &cobra.Command{
 		Use:   "cron -- [schedule1] [command1] [args1...] -- [schedule2] [command2] [args2...]",
-		Short: "example: cron -- \"* * * * * *\" echo 'hello'",
+		Short: "version: 1.1 \nexample: cron -- \"* * * * * *\" echo 'hello'",
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			if !cmd.PersistentFlags().Changed("config") && len(args) < 2 {
 				return fmt.Errorf("At least 2 arguments or set --config\n\n")
