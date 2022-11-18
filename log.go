@@ -35,8 +35,6 @@ func newLogger(stdoutPath, stderrPath string) (*logger, error) {
 	}
 
 	encoderConfig := zap.NewProductionEncoderConfig()
-	encoderConfig.EncodeTime = zapcore.RFC3339TimeEncoder
-	encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
 
 	if stderrPath == "" { // output all to a file
 		l = zap.New(zapcore.NewCore(
