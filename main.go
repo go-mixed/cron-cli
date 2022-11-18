@@ -76,7 +76,7 @@ func buildTask(args []string, logPath string) *Task {
 		if err = task.AddJob(&job{
 			Name:     fmt.Sprintf("argument-%d", i),
 			Schedule: line[0],
-			Commands: []ShellCommand{line[1:]},
+			Commands: []string{strings.Join(line[1:], " ")},
 		}); err != nil {
 			panic(err.Error())
 		}
