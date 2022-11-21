@@ -1,11 +1,10 @@
 ---
 
 schedules:
-  task1:
-    schedule: '* * * * * *'
-    a: 1
+  - schedule: '* * * * * *'
     timeout: 100
-    commands:
-      - echo "command $(date)"
-      - nslookup www.google.com && nslookup www.microsoft.com
+    command: |
+      #!/usr/bin/bash
+      echo "command $(date)"
+      nslookup www.google.com && nslookup www.microsoft.com
 

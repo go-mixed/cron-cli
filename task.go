@@ -6,6 +6,7 @@ import (
 	"github.com/robfig/cron/v3"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -20,10 +21,10 @@ type Task struct {
 
 	wg *sync.WaitGroup
 
-	logger   *logger
-	ctx      context.Context
-	cancel   context.CancelFunc
-	isDocker bool
+	logger           *logger
+	ctx              context.Context
+	cancel           context.CancelFunc
+	rootPathInDocker string
 }
 
 func NewTask(log *logger) *Task {
@@ -36,13 +37,13 @@ func NewTask(log *logger) *Task {
 	}
 }
 
-func (t *Task) AddJob(jobs ...*job) error {
+func (t *Task) AddJob(configFile string, jobs ...*job) error {
 	for _, j := range jobs {
 		if j.Schedule == "" {
 			return fmt.Errorf("schedule required")
 		}
 
-		if len(j.Commands) < 1 {
+		if j.Command == "" {
 			return fmt.Errorf("command of schedule: \"%s\" required", j.Schedule)
 		}
 
@@ -51,11 +52,11 @@ func (t *Task) AddJob(jobs ...*job) error {
 			return err
 		}
 
-		if err := t.createCronJob(j); err != nil {
+		if err := t.createCronJob(configFile, j); err != nil {
 			return err
 		}
 
-		t.logger.Info("add job", "name", j.Name, "schedule", j.Schedule)
+		t.logger.Info("add job", "schedule", j.Schedule, "command", truncateText(j.Command, 40))
 	}
 
 	t.Jobs = append(t.Jobs, jobs...)
@@ -75,8 +76,17 @@ func (t *Task) Start() {
 	t.ctx, t.cancel = context.WithCancel(context.Background())
 }
 
+func (t *Task) InDocker() bool {
+	return t.rootPathInDocker == "" || t.rootPathInDocker == "/"
+}
+
 func (t *Task) Stop() {
 	defer t.wg.Done()
+	defer func() { // delete all temporary shell files
+		for _, j := range t.Jobs {
+			j.deleteShellFile()
+		}
+	}()
 	t.Cron.Stop()
 	if t.cancel != nil {
 		t.cancel()
@@ -101,6 +111,7 @@ for1:
 		}
 		break
 	}
+
 }
 
 func (t *Task) ListenStopSignal() {
@@ -112,7 +123,7 @@ func (t *Task) ListenStopSignal() {
 	}()
 }
 
-func (t *Task) createCronJob(job *job) error {
+func (t *Task) createCronJob(configFile string, job *job) error {
 
 	var jobWrappers []cron.JobWrapper
 	jobWrappers = append(jobWrappers, cron.Recover(job.logger))
@@ -125,48 +136,20 @@ func (t *Task) createCronJob(job *job) error {
 		jobWrappers = append(jobWrappers, cron.SkipIfStillRunning(job.logger))
 	}
 
-	if id, err := t.Cron.AddJob(job.Schedule, cron.NewChain(jobWrappers...).Then(job)); err != nil {
+	id, err := t.Cron.AddJob(job.Schedule, cron.NewChain(jobWrappers...).Then(job))
+	if err != nil {
 		return fmt.Errorf("invalid schedule [%s]: %w", job.Schedule, err)
-	} else {
-		job.id = id
 	}
 
-	return nil
-}
+	job.id = id
 
-func (t *Task) LoadSettings(configs ...string) error {
-
-	for _, path := range configs {
-
-		var filenames []string
-
-		if stat, err := os.Stat(path); err != nil {
-			return err
-		} else if stat.IsDir() {
-			if filenames, err = findYamls(path); err != nil {
-				return err
-			}
-		} else {
-			filenames = append(filenames, path)
-		}
-
-		for _, filename := range filenames {
-			var config Config
-			if err := loadSetting(&config, filename); err != nil {
-				return err
-			}
-			// turn map to slice
-			var jobs []*job
-			for k, j := range config.Schedules {
-				j.Name = k
-				jobs = append(jobs, j)
-			}
-
-			if err := t.AddJob(jobs...); err != nil {
-				return fmt.Errorf("config \"%s\" error: %w", filename, err)
-			}
-		}
+	// put job.command to a temporary shell file
+	if configFile == "argument" {
+		configFile = filepath.Join(os.TempDir(), "argument")
 	}
+
+	job.shellFile = filepath.Join(filepath.Dir(configFile), fmt.Sprintf(".%s-%d.sh", filepath.Base(configFile), id))
+	job.saveShellFile()
 
 	return nil
 }
