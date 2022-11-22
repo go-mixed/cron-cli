@@ -26,6 +26,7 @@ type Task struct {
 	quitSignalCtx    context.Context
 	quitSignalCancel context.CancelFunc
 	rootPathInDocker string
+	testMode         bool
 }
 
 func NewTask(log *logger) *Task {
@@ -66,6 +67,11 @@ func (t *Task) AddJob(configFile string, jobs ...*job) error {
 }
 
 func (t *Task) Start() {
+	if t.testMode {
+		t.startTest()
+		return
+	}
+
 	t.Cron.Start()
 	t.logger.Info("cron start")
 	t.wg.Add(1)
@@ -77,7 +83,7 @@ func (t *Task) Start() {
 	t.quitSignalCtx, t.quitSignalCancel = context.WithCancel(context.Background())
 }
 
-func (t *Task) StartTest() {
+func (t *Task) startTest() {
 	t.logger.Info("cron start in test mode")
 	t.wg.Add(1)
 	if t.quitSignalCancel != nil {
@@ -86,7 +92,7 @@ func (t *Task) StartTest() {
 	t.quitSignalCtx, t.quitSignalCancel = context.WithCancel(context.Background())
 
 	go func() {
-		defer t.StopTest()
+		defer t.stopTest()
 		for _, j := range t.Jobs {
 			j.Run()
 		}
@@ -125,7 +131,7 @@ for1:
 	t.logger.Info("all jobs quit")
 }
 
-func (t *Task) StopTest() {
+func (t *Task) stopTest() {
 	// waiting for all job finish, force quit after stoppingTimeout
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(t.stoppingTimeout)*time.Millisecond)
 	defer cancel()
@@ -134,6 +140,11 @@ func (t *Task) StopTest() {
 }
 
 func (t *Task) Stop() {
+	if t.testMode {
+		t.stopTest()
+		return
+	}
+
 	stoppingCtx := t.Cron.Stop()
 
 	// waiting for all job finish, force quit after stoppingTimeout
@@ -176,7 +187,11 @@ func (t *Task) createCronJob(configFile string, job *job) error {
 		configFile = filepath.Join(os.TempDir(), "argument")
 	}
 
-	job.shellFile = filepath.Join(filepath.Dir(configFile), fmt.Sprintf(".%s-%d.sh", filepath.Base(configFile), id))
+	if t.testMode {
+		job.shellFile = filepath.Join(filepath.Dir(configFile), fmt.Sprintf(".test-%s-%d.sh", filepath.Base(configFile), id))
+	} else {
+		job.shellFile = filepath.Join(filepath.Dir(configFile), fmt.Sprintf(".%s-%d.sh", filepath.Base(configFile), id))
+	}
 	job.saveShellFile()
 
 	return nil

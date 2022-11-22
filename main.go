@@ -27,7 +27,7 @@ func main() {
 		},
 		Run: func(cmd *cobra.Command, args []string) {
 
-			task := buildTask(options.log)
+			task := buildTask(options.log, options.test)
 			task.rootPathInDocker = options.rootPathInDocker
 
 			if err := task.LoadArguments(args); err != nil {
@@ -38,17 +38,11 @@ func main() {
 				panic(err.Error())
 			}
 
-			if options.test {
-				task.StartTest()
-				task.ListenStopSignal(func() {
-					task.StopTest()
-				})
-			} else {
-				task.Start()
-				task.ListenStopSignal(func() {
-					task.Stop()
-				})
-			}
+			task.Start()
+			task.ListenStopSignal(func() {
+				task.Stop()
+			})
+
 			task.Wait()
 		},
 	}
@@ -64,10 +58,13 @@ func main() {
 	}
 }
 
-func buildTask(logPath string) *Task {
+func buildTask(logPath string, test bool) *Task {
 	log, err := newLogger(logPath, "")
 	if err != nil {
 		panic("create logger error: " + err.Error())
 	}
-	return NewTask(log)
+	task := NewTask(log)
+	task.testMode = test
+
+	return task
 }
