@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/robfig/cron/v3"
 	"os"
@@ -22,8 +23,8 @@ type Task struct {
 	wg *sync.WaitGroup
 
 	logger           *logger
-	ctx              context.Context
-	cancel           context.CancelFunc
+	quitSignalCtx    context.Context
+	quitSignalCancel context.CancelFunc
 	rootPathInDocker string
 }
 
@@ -69,62 +70,89 @@ func (t *Task) Start() {
 	t.logger.Info("cron start")
 	t.wg.Add(1)
 
-	if t.cancel != nil {
-		t.cancel()
+	if t.quitSignalCancel != nil {
+		t.quitSignalCancel()
 	}
 
-	t.ctx, t.cancel = context.WithCancel(context.Background())
+	t.quitSignalCtx, t.quitSignalCancel = context.WithCancel(context.Background())
+}
+
+func (t *Task) StartTest() {
+	t.logger.Info("cron start in test mode")
+	t.wg.Add(1)
+	if t.quitSignalCancel != nil {
+		t.quitSignalCancel()
+	}
+	t.quitSignalCtx, t.quitSignalCancel = context.WithCancel(context.Background())
+
+	go func() {
+		defer t.StopTest()
+		for _, j := range t.Jobs {
+			j.Run()
+		}
+	}()
 }
 
 func (t *Task) InDocker() bool {
-	return t.rootPathInDocker == "" || t.rootPathInDocker == "/"
+	return t.rootPathInDocker != "" && t.rootPathInDocker != "/"
 }
 
-func (t *Task) Stop() {
+func (t *Task) stopImpl(ctx context.Context) {
 	defer t.wg.Done()
 	defer func() { // delete all temporary shell files
 		for _, j := range t.Jobs {
 			j.deleteShellFile()
 		}
 	}()
-	t.Cron.Stop()
-	if t.cancel != nil {
-		t.cancel()
+
+	if t.quitSignalCancel != nil {
+		t.quitSignalCancel()
 	}
 
-	// waiting for all job finish，force quit if timeout > stoppingTimeout
+for1:
+	for atomic.LoadInt64(&t.runningCount) > 0 {
+		select {
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				t.logger.Error(fmt.Errorf(""), "cron jobs force quiting")
+			}
+			break for1
+		default:
+			time.Sleep(100 * time.Second)
+		}
+	}
+
+	t.logger.Info("all jobs quit")
+}
+
+func (t *Task) StopTest() {
+	// waiting for all job finish, force quit after stoppingTimeout
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(t.stoppingTimeout)*time.Millisecond)
 	defer cancel()
 
-for1:
-	for {
-		select {
-		case <-ctx.Done():
-			t.logger.Error(fmt.Errorf(""), "force quit")
-			break for1
-		default:
-		}
-
-		if atomic.LoadInt64(&t.runningCount) > 0 {
-			time.Sleep(100 * time.Second)
-			continue
-		}
-		break
-	}
-
+	t.stopImpl(ctx)
 }
 
-func (t *Task) ListenStopSignal() {
+func (t *Task) Stop() {
+	stoppingCtx := t.Cron.Stop()
+
+	// waiting for all job finish, force quit after stoppingTimeout
+	ctx, cancel := context.WithTimeout(stoppingCtx, time.Duration(t.stoppingTimeout)*time.Millisecond)
+	defer cancel()
+
+	t.stopImpl(ctx)
+}
+
+func (t *Task) ListenStopSignal(callback func()) {
 	go func() {
 		ch := make(chan os.Signal)
 		signal.Notify(ch, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 		<-ch
-		t.Stop()
+		callback()
 	}()
 }
 
 func (t *Task) createCronJob(configFile string, job *job) error {
-
 	var jobWrappers []cron.JobWrapper
 	jobWrappers = append(jobWrappers, cron.Recover(job.logger))
 

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -49,11 +50,11 @@ func (job *job) deleteShellFile() {
 }
 
 func (job *job) Run() {
-	ctx := job.task.ctx
+	ctx := job.task.quitSignalCtx
 	// deadline if job.Timeout is valid.
 	if job.Timeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(job.task.ctx, time.Duration(job.Timeout)*time.Millisecond)
+		ctx, cancel = context.WithTimeout(job.task.quitSignalCtx, time.Duration(job.Timeout)*time.Millisecond)
 		defer cancel()
 	}
 
@@ -67,7 +68,7 @@ func (job *job) Run() {
 	}
 
 	var truncatedCmd = truncateText(job.Command, 40)
-	job.logger.Info("executing", "schedule", job.Schedule, "command", truncatedCmd, "id", job.id)
+	job.logger.Info("executing", "schedule", job.Schedule, "command", strings.Join(actualCommand, " "), "id", job.id)
 
 	cmd := exec.CommandContext(ctx, actualCommand[0], actualCommand[1:]...)
 	if !job.task.InDocker() {

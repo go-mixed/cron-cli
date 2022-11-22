@@ -21,7 +21,9 @@ func (t *Task) LoadArguments(args []string) error {
 }
 
 func (t *Task) LoadConfigs(configs ...string) error {
-
+	if len(configs) <= 0 {
+		return nil
+	}
 	var filenames []string
 	var err error
 	for _, path := range configs {

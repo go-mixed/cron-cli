@@ -5,7 +5,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type cmdOptions struct {
+	rootPathInDocker string
+	configs          []string
+	log              string
+	test             bool
+}
+
 func main() {
+
+	options := cmdOptions{}
 
 	rootCmd := &cobra.Command{
 		Use:   "cron -- [schedule1] [command1] [args1...] -- [schedule2] [command2] [args2...]",
@@ -17,32 +26,37 @@ func main() {
 			return nil
 		},
 		Run: func(cmd *cobra.Command, args []string) {
-			logPath, _ := cmd.PersistentFlags().GetString("log")
-			rootPathInDocker, _ := cmd.PersistentFlags().GetString("root-path-in-docker")
 
-			task := buildTask(logPath)
-			task.rootPathInDocker = rootPathInDocker
+			task := buildTask(options.log)
+			task.rootPathInDocker = options.rootPathInDocker
 
 			if err := task.LoadArguments(args); err != nil {
 				panic(err.Error())
 			}
 
-			if cmd.PersistentFlags().Changed("config") {
-				configs, _ := cmd.PersistentFlags().GetStringSlice("config")
-				if err := task.LoadConfigs(configs...); err != nil {
-					panic(err.Error())
-				}
+			if err := task.LoadConfigs(options.configs...); err != nil {
+				panic(err.Error())
 			}
 
-			task.Start()
-			task.ListenStopSignal()
+			if options.test {
+				task.StartTest()
+				task.ListenStopSignal(func() {
+					task.StopTest()
+				})
+			} else {
+				task.Start()
+				task.ListenStopSignal(func() {
+					task.Stop()
+				})
+			}
 			task.Wait()
 		},
 	}
 
-	rootCmd.PersistentFlags().String("root-path-in-docker", "/", "What the mounted path of / of host os. Implied meaning: run this application in docker container")
-	rootCmd.PersistentFlags().StringSliceP("config", "c", []string{}, "the path of config files or directories")
-	rootCmd.PersistentFlags().StringP("log", "l", "", "the path of log file")
+	rootCmd.PersistentFlags().StringVar(&options.rootPathInDocker, "root-path-in-docker", "/", "What the mounted path of / of host os. Implied meaning: run this application in docker container")
+	rootCmd.PersistentFlags().StringSliceVarP(&options.configs, "config", "c", []string{}, "the path of config files or directories")
+	rootCmd.PersistentFlags().StringVarP(&options.log, "log", "l", "", "the path of log file")
+	rootCmd.PersistentFlags().BoolVar(&options.test, "test", false, "execute all commands immediately and quit")
 
 	err := rootCmd.Execute()
 	if err != nil {
